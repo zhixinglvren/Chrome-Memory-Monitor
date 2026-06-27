@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chrome 内存监控工具 - 使用说明</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f6f8fa;
+    color: #24292f;
+    line-height: 1.7;
+    padding: 0;
+}
+.wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 30px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border-radius: 8px;
+    margin-top: 30px;
+    margin-bottom: 30px;
+}
+h1 {
+    font-size: 2em;
+    color: #0969da;
+    border-bottom: 2px solid #d0d7de;
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+}
+h2 {
+    font-size: 1.5em;
+    color: #0969da;
+    border-bottom: 1px solid #d8dee4;
+    padding-bottom: 8px;
+    margin: 32px 0 16px 0;
+}
+h3 {
+    font-size: 1.2em;
+    color: #1f2328;
+    margin: 24px 0 12px 0;
+}
+h4 {
+    font-size: 1.1em;
+    color: #1f2328;
+    margin: 20px 0 10px 0;
+}
+p { margin: 10px 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+ul, ol { margin: 8px 0; padding-left: 24px; }
+li { margin: 4px 0; }
+code {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    background: #f0f2f5;
+    color: #0550ae;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+pre {
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+pre code {
+    background: transparent;
+    color: #24292f;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.95em;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.95em;
+}
+th {
+    background: #f0f2f5;
+    color: #0969da;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    border: 1px solid #d0d7de;
+}
+td {
+    padding: 8px 14px;
+    border: 1px solid #d0d7de;
+}
+tr:nth-child(even) { background: #f6f8fa; }
+tr:nth-child(odd) { background: #ffffff; }
+blockquote {
+    border-left: 4px solid #d0d7de;
+    background: #f6f8fa;
+    padding: 12px 16px;
+    margin: 16px 0;
+    border-radius: 0 8px 8px 0;
+    color: #57606a;
+}
+blockquote p { margin: 4px 0; }
+strong { color: #0550ae; }
+hr {
+    border: none;
+    border-top: 1px solid #d0d7de;
+    margin: 32px 0;
+}
+.version-tag {
+    text-align: center;
+    color: #6e7781;
+    font-size: 0.85em;
+    margin-top: 32px;
+    padding-top: 16px;
+    border-top: 1px solid #d8dee4;
+}
+@media (max-width: 640px) {
+    .wrapper { padding: 20px 16px; margin-top: 0; margin-bottom: 0; border-radius: 0; }
+    table { font-size: 0.85em; }
+}
+</style>
+</head>
+<body>
+<div class="wrapper">
+<h1>Chrome 内存监控工具 - 使用说明</h1>
+
+<h2>概述</h2>
+<p>本工具通过 <strong>Chrome DevTools Protocol (CDP)</strong> 实时采集浏览器的内存与性能数据，支持：</p>
+<p><strong>采集策略（双层，各自独立定时器 + 自适应间隔）</strong>：<br>
+- <strong>分配采样（Allocation Sampling）</strong>：类似 Chrome F12 Memory 面板点击"开始录制"，持续录制期间的内存分配信息；到点 <code>stopSampling</code> 保存 profile → 再 <code>startSampling</code> 继续录制，循环往复<br>
+- <strong>堆快照（Heap Snapshot）</strong>：通过 <code>HeapProfiler.takeHeapSnapshot</code> 按独立频率定期保存完整 V8 堆快照，用于深度分析</p>
+<p><strong>核心特性</strong>：<br>
+- 实时 JS 堆内存监控（仪表盘 + CSV 日志 + Sparkline 趋势曲线）<br>
+- DOM 节点数、事件监听器、文档数等详细指标<br>
+- 自适应监控间隔（根据内存使用率自动切换正常/高频/紧急模式）<br>
+- 分配采样独立开关（<code>sampling-*.heapprofile</code>，可直接在 DevTools 中分析）<br>
+- 堆快照独立开关（<code>heap-*.heapsnapshot</code>，内存超阈值时自动触发）<br>
+- 浏览器崩溃前自动保存最后采样 + 快照<br>
+- 终端可视化仪表盘（实时趋势曲线 + 彩色进度条）<br>
+- 通用导航（支持任意 URL 格式，不限于 hash 路由）</p>
+
+<hr>
+<h2>环境准备</h2>
+
+<h3>1. 安装 Python</h3>
+<p>本工具基于 Python 3，需要 <strong>Python ≥ 3.8</strong> 运行环境。</p>
+<ul>
+<li><strong>Windows 下载地址</strong>：<a href="https://www.python.org/downloads/" target="_blank">https://www.python.org/downloads/</a></li>
+<li>下载 <strong>Python 3.8+</strong> 版本（建议最新稳定版）</li>
+<li>安装时务必勾选 <strong>"Add Python to PATH"</strong>，否则命令行无法识别 <code>python</code> 命令</li>
+</ul>
+<p>安装完成后，打开 CMD 验证：</p>
+<pre><code class="language-batch">python --version
+pip --version
+</code></pre>
+
+<h3>2. 安装依赖库</h3>
+<p>运行前需要安装 <code>websockets</code> 库（≥ 10.0），用于通过 CDP WebSocket 与 Chrome 通信：</p>
+
+<h4>方式 A：联网安装（可上网环境）</h4>
+<pre><code class="language-batch">pip install websockets
+</code></pre>
+<p>也可以使用 <code>start-monitor.bat</code> 自动安装（推荐方式）。</p>
+
+<h4>方式 B：离线安装（无外网环境）</h4>
+<p><code>websockets</code> 是纯 Python 包（无 C 扩展），可通过 <code>.whl</code> 文件离线安装，无需编译。</p>
+<p><strong>步骤：</strong></p>
+<ol>
+<li><strong>在有网络的电脑上</strong>下载 whl 文件：
+<pre><code class="language-bash">pip download websockets -d ./pkgs
+</code></pre>
+会在 <code>./pkgs</code> 目录下生成 <code>websockets-16.0-py3-none-any.whl</code> 文件</li>
+<li><strong>将整个 <code>pkgs</code> 文件夹</strong>通过 U 盘拷贝到内网电脑</li>
+<li><strong>在内网电脑上</strong>离线安装：
+<pre><code class="language-bash">pip install --no-index --find-links=./pkgs websockets
+</code></pre>
+</li>
+</ol>
+<blockquote>
+<p><strong>说明</strong>：<code>--no-index</code> 表示不从 PyPI 联网下载，<code>--find-links</code> 指定本地 whl 文件所在目录。只要 <code>.whl</code> 文件名中含 <code>py3-none-any</code>，即为纯 Python 包，不需要编译环境。</p>
+</blockquote>
+
+<h3>依赖清单</h3>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>最低版本</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td>3.8</td>
+<td>运行时（从官网下载安装）</td>
+</tr>
+<tr>
+<td>websockets</td>
+<td>10.0</td>
+<td>CDP WebSocket 通信（<code>pip install websockets</code>）</td>
+</tr>
+</tbody>
+</table>
+
+<p>本工具<strong>无其他第三方依赖</strong>，仅使用 Python 标准库（<code>asyncio</code>、<code>subprocess</code>、<code>json</code>、<code>csv</code> 等）。</p>
+
+<hr>
+<h2>快速开始</h2>
+
+<h3>方式一：双击运行（推荐）</h3>
+<pre><code class="language-batch">start-monitor.bat
+</code></pre>
+<p>脚本会自动安装 <code>websockets</code> 依赖，然后启动监控。</p>
+
+<h3>方式二：命令行运行</h3>
+<pre><code class="language-bash">pip install websockets          # 首次需要，之后不需要
+python chrome-memory-monitor.py
+</code></pre>
+
+<h3>关于 Chrome 启动策略</h3>
+<ul>
+<li>如果 Chrome 已以 <code>--remote-debugging-port=9222</code> 启动 → <strong>自动复用</strong>，不关闭也不重启</li>
+<li>如果端口 9222 未被占用 → 自动启动新的 Chrome 实例（使用独立用户目录，不影响已有 Chrome）</li>
+<li>如果已有 Chrome 占用了端口但非调试模式 → 提示手动启动命令</li>
+<li><code>TARGET_URL</code> 留空时 → 不自动导航，用户在浏览器手动输入地址即可</li>
+<li><code>TARGET_URL</code> 非空时 → 自动新开标签页并跳转（不影响其他已有标签页）</li>
+</ul>
+
+<hr>
+<h2>配置文件结构</h2>
+<p>打开 <code>chrome-memory-monitor.py</code>，在第 33 ~ 56 行修改配置：</p>
+
+<pre><code class="language-python"># ==================== 配置（可根据需要修改）====================
+TARGET_URL = ""                   # 监控目标 URL（留空则不自动导航，用户在浏览器手动输入地址）
+CDP_PORT = 9222
+METRIC_INTERVAL = 10             # 指标数据采集间隔（秒）
+
+# ===== 分配采样（Allocation Profile）配置 =====
+SAMPLING_ENABLED = True                  # 开启/关闭分配采样
+SAMPLING_INTERVAL_NORMAL = 60            # 正常模式：分配采样保存间隔（秒）
+SAMPLING_INTERVAL_HIGH = 30              # 高频模式：分配采样保存间隔（秒），内存 >80% 时
+SAMPLING_INTERVAL_CRIT = 5               # 紧急模式：分配采样保存间隔（秒），内存 >95% 时
+
+# ===== 堆快照（Heap Snapshot）配置 =====
+SNAPSHOT_ENABLED = True                  # 开启/关闭堆快照
+SNAPSHOT_INTERVAL_NORMAL = 60            # 正常模式：堆快照间隔（分钟），默认60分钟
+SNAPSHOT_INTERVAL_HIGH = 10              # 高频模式：堆快照间隔（分钟），内存 >80% 时，默认10分钟
+SNAPSHOT_INTERVAL_CRIT = 5               # 紧急模式：堆快照间隔（分钟），内存 >95% 时，默认5分钟
+
+# 阈值基于浏览器 JS 堆上限（jsHeapSizeLimit）的百分比
+HIGH_PERCENT = 0.80           # 高频采样阈值：JS 堆占用超上限 80% 时加快采样
+CRIT_PERCENT = 0.95           # 紧急快照阈值：JS 堆占用超上限 95% 时立即保存快照
+METRIC_INTERVAL_FAST = 3        # 高频指标采集间隔（秒），超过 HIGH_PERCENT 后使用此间隔
+
+MAX_SAMPLING_FILES = 100       # 最大保留分配采样文件数（.heapprofile），超过自动删除最旧的
+MAX_SNAPSHOT_FILES = 20        # 最大保留堆快照文件数（.heapsnapshot），超过自动删除最旧的
+SAMPLING_INTERVAL_US = 1000000  # 分配采样内部间隔（微秒），1000000 = 1秒
+</code></pre>
+
+<blockquote style="color: #c62828; border-left-color: #c62828;">
+<p><strong>⚠️ 磁盘空间提醒</strong>：分配采样（.heapprofile）和堆快照（.heapsnapshot）会持续写入文件，堆快照单文件可达数百 MB。请确保：① <strong>不要将脚本放在 C 盘根目录或系统盘</strong>运行；② 运行过程中留意本地磁盘剩余空间，避免磁盘写满影响系统稳定性。</p>
+</blockquote>
+
+<hr>
+<h2>配置参数详解</h2>
+
+<h3>基础配置</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TARGET_URL</code></td>
+<td>空（可选）</td>
+<td>监控目标 URL，留空则不自动导航，用户在浏览器手动输入地址</td>
+</tr>
+<tr>
+<td><code>CDP_PORT</code></td>
+<td>9222</td>
+<td>Chrome 远程调试端口</td>
+</tr>
+<tr>
+<td><code>METRIC_INTERVAL</code></td>
+<td>10 秒</td>
+<td>指标数据采集间隔（内存/DOM/性能指标）</td>
+</tr>
+</tbody>
+</table>
+
+<h3>分配采样（Allocation Profile）配置</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SAMPLING_ENABLED</code></td>
+<td><code>True</code></td>
+<td>是否开启分配采样（设为 <code>False</code> 可关闭）</td>
+</tr>
+<tr>
+<td><code>SAMPLING_INTERVAL_NORMAL</code></td>
+<td>60 秒</td>
+<td>正常模式：分配采样保存间隔</td>
+</tr>
+<tr>
+<td><code>SAMPLING_INTERVAL_HIGH</code></td>
+<td>30 秒</td>
+<td>高频模式（内存 &gt; 80%）：分配采样保存间隔</td>
+</tr>
+<tr>
+<td><code>SAMPLING_INTERVAL_CRIT</code></td>
+<td>5 秒</td>
+<td>紧急模式（内存 &gt; 95%）：分配采样保存间隔</td>
+</tr>
+<tr>
+<td><code>SAMPLING_INTERVAL_US</code></td>
+<td>1,000,000 μs</td>
+<td>V8 HeapProfiler 内部采样周期，越小精度越高但性能开销越大</td>
+</tr>
+</tbody>
+</table>
+
+<h3>堆快照（Heap Snapshot）配置</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SNAPSHOT_ENABLED</code></td>
+<td><code>True</code></td>
+<td>是否开启堆快照（设为 <code>False</code> 可关闭）</td>
+</tr>
+<tr>
+<td><code>SNAPSHOT_INTERVAL_NORMAL</code></td>
+<td>60 分钟</td>
+<td>正常模式：堆快照间隔</td>
+</tr>
+<tr>
+<td><code>SNAPSHOT_INTERVAL_HIGH</code></td>
+<td>10 分钟</td>
+<td>高频模式（内存 &gt; 80%）：堆快照间隔</td>
+</tr>
+<tr>
+<td><code>SNAPSHOT_INTERVAL_CRIT</code></td>
+<td>5 分钟</td>
+<td>紧急模式（内存 &gt; 95%）：堆快照间隔</td>
+</tr>
+</tbody>
+</table>
+
+<h3>自适应阈值配置</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HIGH_PERCENT</code></td>
+<td>0.80（80%）</td>
+<td>JS 堆超上限 80% 时切换到高频模式</td>
+</tr>
+<tr>
+<td><code>CRIT_PERCENT</code></td>
+<td>0.95（95%）</td>
+<td>JS 堆超上限 95% 时切换到紧急模式</td>
+</tr>
+<tr>
+<td><code>METRIC_INTERVAL_FAST</code></td>
+<td>3 秒</td>
+<td>高频/紧急模式下，指标数据采集间隔（仪表盘刷新）</td>
+</tr>
+<tr>
+<td><code>MAX_SAMPLING_FILES</code></td>
+<td>100 个</td>
+<td>最大保留分配采样文件数（.heapprofile），超过自动删除最旧的</td>
+</tr>
+<tr>
+<td><code>MAX_SNAPSHOT_FILES</code></td>
+<td>20 个</td>
+<td>最大保留堆快照文件数（.heapsnapshot），超过自动删除最旧的</td>
+</tr>
+</tbody>
+</table>
+
+<blockquote>
+<p><strong>阈值基准说明</strong>：阈值基于 <code>performance.memory.jsHeapSizeLimit</code>（Chrome JS 堆上限）计算。</p>
+<p>什么是 jsHeapSizeLimit？<br>
+- 默认值（64 位 Chrome）约为 <strong>4 GB</strong>，由 V8 引擎根据可用内存自动决定<br>
+- 这是 V8 引擎允许 JS 占用的最大堆内存，高频/紧急阈值基于此上限自动计算</p>
+<p>以默认 <code>jsHeapSizeLimit=4096</code>（4GB 上限）为例：<br>
+- <code>HIGH_PERCENT=0.8</code> → JS 堆占用 <strong>~3276 MB</strong> 触发高频<br>
+- <code>CRIT_PERCENT=0.95</code> → JS 堆占用 <strong>~3891 MB</strong> 触发紧急快照</p>
+<p>首次采集到内存数据后自动计算具体 MB 值，日志会打印：<br>
+<code>📐 JS 堆上限: 4096 MB  |  高频阈值: 3276 MB (80%)  |  紧急阈值: 3891 MB (95%)</code></p>
+</blockquote>
+
+<hr>
+<h2>自适应监控间隔详解</h2>
+<p>本工具采用<strong>三层自适应监控策略</strong>（根据内存使用率自动切换）：</p>
+
+<h3>正常模式（内存 &lt; 80% 时）</h3>
+<pre><code>指标采集：每 10 秒
+分配采样保存：每 60 秒（stop→save→restart）
+堆快照保存：每 30 分钟
+</code></pre>
+
+<h3>高频模式（内存 &gt; 80% 且 &lt; 95% 时）</h3>
+<pre><code>指标采集：每 3 秒（METRIC_INTERVAL_FAST）
+分配采样保存：每 30 秒
+堆快照保存：每 10 分钟
+</code></pre>
+
+<h3>紧急模式（内存 &gt; 95% 时）</h3>
+<pre><code>指标采集：每 3 秒
+分配采样保存：每 5 秒
+堆快照保存：跳过（V8 全力 GC，takeHeapSnapshot 会超时或卡死浏览器）
+立即触发：内存超过 95% 时，立即保存分配采样（堆快照在内存高压下不可行）
+</code></pre>
+<blockquote>
+<p><strong>为什么紧急模式跳过堆快照？</strong><br>
+当 JS 堆占用接近上限（&gt; 95%）时，V8 引擎正在全力执行垃圾回收，此时调用 <code>HeapProfiler.takeHeapSnapshot</code> 需要遍历整个堆并暂停 JS 执行，几乎必然超时（甚至导致浏览器卡死）。分配采样（.heapprofile）相对轻量，可以在内存高压下完成。</p>
+</blockquote>
+
+<h3>恢复机制（滞后阈值设计）</h3>
+<pre><code>当内存使用率降至 64%（80%×80%）以下时，
+自动从高频/紧急模式恢复正常模式。
+
+为什么不是降到80%就恢复？
+- 这是"滞后阈值（Hysteresis）"，防止在80%附近频繁切换模式
+- 如果80%触发高频、79%就恢复，内存小幅波动会导致：
+  正常→高频→正常→高频→...（频繁抖动）
+- 64% = 80%×80%，提供了16%的缓冲区，避免频繁切换
+</code></pre>
+
+<h3>崩溃模式（Chrome 进程退出或 WebSocket 断开时）</h3>
+<pre><code>1. 立即保存分配采样（如果已启用）
+2. 立即保存堆快照（如果已启用）
+3. 停止监控
+</code></pre>
+
+<hr>
+<h2>文件说明</h2>
+
+<h3>核心脚本</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chrome-memory-monitor.py</code></td>
+<td>主监控脚本，约 1000 行</td>
+</tr>
+<tr>
+<td><code>start-monitor.bat</code></td>
+<td>Windows 启动器，自动安装依赖</td>
+</tr>
+<tr>
+<td><code>start-chrome-debug.bat</code></td>
+<td>Chrome 调试模式启动器（带 <code>--remote-debugging-port=9222</code>），日常用此快捷方式启动 Chrome 即可被监控脚本复用</td>
+</tr>
+</tbody>
+</table>
+
+<h3>输出目录结构</h3>
+<p>运行后自动创建 <code>chrome-memory-logs/</code> 目录：</p>
+<pre><code>chrome-memory-logs/
+├── memory-2026-05-10.csv           # 内存时序数据（可按天打开）
+├── monitor-2026-05-10.txt          # 运行日志（按时间正序）
+└── snapshots/
+    ├── sampling-20260510_064805_021681.heapprofile   # 分配采样文件（DevTools 原生支持）
+    ├── sampling-20260510_064835_676828.heapprofile
+    ├── heap-20260510_164703_123456.heapsnapshot      # 堆快照（告警时兜底）
+    └── ...
+</code></pre>
+
+<hr>
+<h2>仪表盘说明</h2>
+<p>运行后终端会自动更新仪表盘（每 10 秒或 3 秒刷新）：</p>
+
+<pre><code>╔══════════════════════════════════════════════════════════════╗
+║  Chrome 内存监控工具 (CDP)
+╠══════════════════════════════════════════════════════════════╣
+║  目标: 手动导航
+║  运行:      123 秒  |  PID: 12345  |  状态: ● 正常
+╠══════════════════════════════════════════════════════════════╣
+║  📊 内存信息
+║     JS 堆:     19.43 MB  |  进程:   200.5 MB
+║     JS堆上限:      4.00 GB
+║     JS堆使用率:    0.47%  ████░░░░░░░░░░░░░░░░
+║     阈值: 高频 > 80% · 紧急 > 95% · 限 4096MB
+╠══════════════════════════════════════════════════════════════╣
+║  🌐 DOM 信息
+║     DOM节点:         65
+║     事件监听器:     112
+╠══════════════════════════════════════════════════════════════╣
+║  ⚡ 渲染指标
+║     布局重排:          0
+║     样式重计算:        0
+╠══════════════════════════════════════════════════════════════╣
+║  📊 采集状态
+║     分配采样 ● 正常  ·  已存 5 次  ·  每 60s
+║     堆快照 ● 正常  ·  已存 0 次  ·  每 30分钟
+╠══════════════════════════════════════════════════════════════╣
+║  📈 内存趋势
+║     JS堆 ▁▂▃▄▅▆▇█▇▆▅▄▃▂▁   min:10  avg:50  max:130MB
+║
+║     进程 ▁▂▃▅▆▇█▇▆▅▃▂▁   min:150  avg:180  max:200MB
+╚══════════════════════════════════════════════════════════════╝
+</code></pre>
+
+<h3>内存趋势曲线（Sparkline）</h3>
+<p>仪表盘 <strong>内存趋势曲线</strong>，使用 Unicode 块字符（▁▂▃▄▅▆▇█）绘制：</p>
+<ul>
+<li><strong>JS 堆曲线</strong>：显示最近 30 次采集的 JS 堆内存变化趋势</li>
+<li><strong>进程内存曲线</strong>：显示最近 30 次采集的 Chrome 总进程内存变化趋势</li>
+<li>曲线右侧显示各自 <code>min:最小值  avg:平均值  max:最大值MB</code></li>
+</ul>
+
+<h3>颜色含义</h3>
+<table>
+<thead>
+<tr>
+<th>颜色</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🟢 绿色</td>
+<td>内存正常（&lt; 80%）</td>
+</tr>
+<tr>
+<td>🟡 黄色</td>
+<td>内存偏高（&gt; 80%），高频采样中</td>
+</tr>
+<tr>
+<td>🔴 红色</td>
+<td>内存告警（&gt; 95%），立即保存采样 + 兜底堆快照</td>
+</tr>
+</tbody>
+</table>
+
+<h3>状态指标说明</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数据来源</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JS 堆内存</td>
+<td><code>performance.memory</code></td>
+<td>JavaScript 堆内存占用</td>
+</tr>
+<tr>
+<td>JS堆上限</td>
+<td><code>performance.memory.jsHeapSizeLimit</code></td>
+<td>V8 引擎允许 JS 占用的最大内存（约 4GB），非系统总内存</td>
+</tr>
+<tr>
+<td>JS堆使用率</td>
+<td><code>usedJSHeap / jsHeapSizeLimit</code></td>
+<td><strong>JS 堆</strong>占上限的百分比（阈值判断依据），进程内存使用率不直接显示</td>
+</tr>
+<tr>
+<td>进程内存</td>
+<td><code>tasklist</code></td>
+<td>Chrome 所有进程的总内存（等效任务管理器），可能远大于 JS堆上限</td>
+</tr>
+<tr>
+<td>DOM 节点数</td>
+<td><code>document.querySelectorAll('*')</code></td>
+<td>当前页面 DOM 元素数量</td>
+</tr>
+<tr>
+<td>事件监听器</td>
+<td><code>Memory.getDOMCounters</code></td>
+<td>注册的 JS 事件监听器数量</td>
+</tr>
+<tr>
+<td>文档数</td>
+<td><code>Memory.getDOMCounters</code></td>
+<td>iframe 或子文档数量</td>
+</tr>
+<tr>
+<td>帧数</td>
+<td><code>Performance.getMetrics</code></td>
+<td>每秒渲染帧数</td>
+</tr>
+<tr>
+<td>布局重排</td>
+<td><code>Performance.getMetrics</code></td>
+<td>触发的 Layout 次数</td>
+</tr>
+<tr>
+<td>样式重计算</td>
+<td><code>Performance.getMetrics</code></td>
+<td>触发的 RecalcStyle 次数</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+<h2>日志显示顺序</h2>
+<p>仪表盘下方的实时日志现在按<strong>时间正序</strong>显示（最新的日志在最后面）：</p>
+<pre><code>───────────────────────────────────────────────────────
+[06:48:05] ✅ 分配采样已启动（正常60s / 高频30s / 紧急5s）
+[06:48:05] ✅ 堆快照已启动（正常30分 / 高频10分 / 紧急5分）
+[06:48:05] CDP 已连接，启动监控...
+[06:48:07] 📐 JS 堆上限: 4096 MB  |  高频阈值: 3276 MB (80%)  |  紧急阈值: 3891 MB (95%)
+[06:48:15] ✅ 采样已保存: sampling-20260510_064815_123456.heapprofile
+</code></pre>
+
+<h2>CSV 日志文件</h2>
+<p>文件格式：<code>memory-YYYY-MM-DD.csv</code></p>
+<pre><code class="language-csv">timestamp,elapsed_sec,used_js_heap_mb,total_js_heap_mb,heap_limit_mb,process_memory_mb,dom_nodes,js_event_listeners,documents,frames
+2026-05-10 06:48:03,200,19.43,22.00,4096,200.5,65,112,1,1
+</code></pre>
+<p>可用 Excel 打开，生成内存趋势图。</p>
+
+<hr>
+<h2>分配采样分析（.heapprofile）</h2>
+<p>自动保存的 <code>sampling-*.heapprofile</code> 文件是 Chrome DevTools 原生支持的 Allocation Profile 格式，可直接导入分析。相比堆快照（.heapsnapshot），分配采样文件更小、采集更快，适合日常趋势分析。</p>
+
+<h3>分析步骤</h3>
+<ol>
+<li><strong>打开 Chrome DevTools</strong></li>
+</ol>
+<p><code>F12 或 右键 → 检查</code></p>
+<ol start="2">
+<li><strong>进入 Memory 面板</strong></li>
+</ol>
+<p><code>点击导航栏 "Memory" 标签</code></p>
+<ol start="3">
+<li><strong>加载分配采样</strong></li>
+</ol>
+<p><code>点击 "Load Profile"
+   选择 .heapprofile 文件（Chrome 新版原生支持）</code></p>
+<ol start="4">
+<li><strong>查看 Allocation 视图</strong></li>
+</ol>
+<p><code>加载后在 "Allocation" 视图中查看：
+   - 按函数名分组查看内存分配来源
+   - 按文件/行号定位具体代码位置
+   - 分析 Top Down 或 Bottom Up 的调用链</code></p>
+
+<blockquote>
+<p><strong>提示</strong>：分配采样是统计性的，可能不会捕获所有对象，但足以定位大多数内存泄漏的根因。<br>
+<strong>文件格式变更</strong>：旧版使用 <code>.json</code> 扩展名，新版改为 <code>.heapprofile</code>（Chrome DevTools 原生支持）。</p>
+</blockquote>
+
+<hr>
+<h2>堆快照分析（.heapsnapshot）</h2>
+<p>堆快照通过 <code>HeapProfiler.takeHeapSnapshot</code> 按独立频率定期保存（默认每 30 分钟），同时在内存超限或浏览器崩溃时也会触发。<code>.heapsnapshot</code> 是 Chrome DevTools 原生格式，可用于深度分析。</p>
+
+<h3>技术要点：避免 HeapProfiler 域冲突</h3>
+<blockquote>
+<p><strong>重要</strong>：<code>HeapProfiler.startSampling</code> 和 <code>HeapProfiler.takeHeapSnapshot</code> 共用 V8 Profiler 域，不能同时运行，否则会导致超时错误。<br>
+<strong>解决方案</strong>：在拍摄堆快照前，先停止分配采样（<code>stopSampling</code>），拍摄完成后再恢复（<code>startSampling</code>）。</p>
+</blockquote>
+
+<pre><code class="language-python">async def take_snapshot():
+    # 1. 先停止分配采样（避免 V8 Profiler 域冲突）
+    await send_cdp("HeapProfiler.stopSampling")
+    
+    # 2. 拍摄堆快照（超时设为 60 秒）
+    resp = await send_cdp("HeapProfiler.takeHeapSnapshot", {
+        "reportProgress": True
+    }, timeout=60)
+    
+    # 3. 恢复分配采样
+    await send_cdp("HeapProfiler.startSampling", {
+        "samplingInterval": SAMPLING_INTERVAL_US
+    })
+</code></pre>
+
+<h3>分析步骤</h3>
+<ol>
+<li><strong>打开 Chrome DevTools</strong></li>
+</ol>
+<p><code>F12 或 右键 → 检查</code></p>
+<ol start="2">
+<li><strong>进入 Memory 面板</strong></li>
+</ol>
+<p><code>点击导航栏 "Memory" 标签</code></p>
+<ol start="3">
+<li><strong>加载堆快照</strong></li>
+</ol>
+<p><code>点击 "Load Profile" 或 "Load snapshot"
+   选择 .heapsnapshot 文件</code></p>
+<ol start="4">
+<li><strong>使用 Comparison 视图分析（推荐）</strong></li>
+</ol>
+<p><code>加载两个不同时间点的快照
+   在视图下拉菜单中选择 "Comparison"
+   对比增量，找出增长的对象</code></p>
+
+<h3>如何定位内存泄漏</h3>
+<table>
+<thead>
+<tr>
+<th>分析视图</th>
+<th>适用场景</th>
+<th>操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Summary</strong></td>
+<td>查看各类对象的总占用</td>
+<td>Constructor → 按 Retained Size 排序</td>
+</tr>
+<tr>
+<td><strong>Comparison</strong></td>
+<td>对比两个快照的差异</td>
+<td>选择前一个快照，查看 delta</td>
+</tr>
+<tr>
+<td><strong>Containment</strong></td>
+<td>查看对象引用链</td>
+<td>从 GC root 向下展开</td>
+</tr>
+<tr>
+<td><strong>Statistics</strong></td>
+<td>整体内存分布</td>
+<td>饼图显示各类对象占比</td>
+</tr>
+</tbody>
+</table>
+
+<h3>关键指标</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Shallow Size</strong></td>
+<td>对象自身占用内存</td>
+<td>单个对象大小</td>
+</tr>
+<tr>
+<td><strong>Retained Size</strong></td>
+<td>对象及其引用的全部对象总大小（<strong>最重要的泄漏指标</strong>）</td>
+<td>看哪个对象 retained size 最大</td>
+</tr>
+<tr>
+<td><strong>Distance</strong></td>
+<td>到 GC Root 的距离</td>
+<td>距离越近越难以被回收</td>
+</tr>
+<tr>
+<td><strong>Detached DOM</strong></td>
+<td>已从 DOM 树移除但仍被 JS 引用的节点</td>
+<td>查找 "Detached" 前缀的对象</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+<h2>独立开关控制</h2>
+<p>分配采样和堆快照现在支持<strong>独立开关控制</strong>，可根据需要单独启用或禁用：</p>
+
+<pre><code class="language-python"># 方式一：修改配置（推荐）
+SAMPLING_ENABLED = True     # 开启分配采样
+SNAPSHOT_ENABLED = False    # 关闭堆快照
+
+# 方式二：在运行时动态修改（高级用法）
+state = MonitorState()
+state.sampling_enabled = False  # 动态关闭
+</code></pre>
+
+<h3>开关行为</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>两者都开启</td>
+<td>分配采样优先执行；堆快照执行前会自动暂停采样，执行后恢复</td>
+</tr>
+<tr>
+<td>只开启采样</td>
+<td>仅保存 <code>sampling-*.heapprofile</code>，不保存堆快照</td>
+</tr>
+<tr>
+<td>只开启快照</td>
+<td>仅保存 <code>heap-*.heapsnapshot</code>，不启动分配采样（无冲突风险）</td>
+</tr>
+<tr>
+<td>两者都关闭</td>
+<td>仅采集指标数据（JS 堆、DOM、进程内存等），不保存采样/快照文件</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+<h2>常见问题</h2>
+
+<h3>Q1: 提示 "未找到 Chrome"</h3>
+<pre><code>FileNotFoundError: 未找到 Chrome，请手动安装
+</code></pre>
+<p><strong>解决方法</strong>：在 <code>chrome-memory-monitor.py</code> 第 202 ~ 207 行的 <code>candidates</code> 列表中添加你的 Chrome 安装路径。</p>
+
+<h3>Q2: 提示 "无法连接到 Chrome"</h3>
+<pre><code>CDP 连接失败: [WinError 10061] 无法连接
+</code></pre>
+<p><strong>可能原因</strong>：<br>
+- Chrome 被上一个实例锁定了用户数据目录<br>
+- 端口 9222 被占用</p>
+<p><strong>解决方法</strong>：</p>
+<pre><code>1. 手动关闭所有 Chrome 窗口
+2. 在任务管理器确认无 chrome.exe 进程
+3. 重新运行 start-monitor.bat
+</code></pre>
+
+<h3>Q3: 脚本打开后闪退</h3>
+<p><strong>原因</strong>：CMD 默认编码（GBK）与文件编码（UTF-8）不匹配。</p>
+<p><strong>解决方法</strong>：</p>
+<pre><code class="language-batch"># 方案一：先设置编码再运行
+chcp 65001
+start-monitor.bat
+
+# 方案二：直接用 PowerShell 运行
+powershell -ExecutionPolicy Bypass -File start-monitor.bat
+</code></pre>
+
+<h3>Q4: 采样或堆快照文件占用大量磁盘空间</h3>
+<p><strong>解决</strong>：分配采样和堆快照现在使用独立的保留数量控制，可根据各自的大小分别调整：</p>
+<pre><code class="language-python">MAX_SAMPLING_FILES = 100  # 分配采样文件保留数（默认100，几MB一个）
+MAX_SNAPSHOT_FILES = 20   # 堆快照文件保留数（默认20，可能数百MB一个）
+</code></pre>
+<p>分配采样文件（<code>sampling-*.heapprofile</code>）通常只有几 MB，远小于堆快照（<code>heap-*.heapsnapshot</code> 可能达数百 MB）。如果堆快照过多，关注紧急告警触发频率，或调小 <code>MAX_SNAPSHOT_FILES</code>。</p>
+
+<h3>Q5: 监控一段时间后没有生成采样文件</h3>
+<p><strong>可能原因</strong>：<br>
+- 采样保存间隔没到（默认 60 秒）<br>
+- <code>SAMPLING_ENABLED = False</code>（采样被关闭了）<br>
+- Chrome 的 HeapProfiler 域未正确启用</p>
+<p><strong>验证</strong>：查看 <code>monitor-YYYY-MM-DD.txt</code> 日志，搜索 "📊" 或 "✅ 采样" 相关日志</p>
+
+<h3>Q6: 可以监控多个页面吗？</h3>
+<p><strong>答</strong>：目前脚本监控的是 Chrome 中选中的<strong>第一个标签页</strong>。如果要监控其他页面，需要修改 <code>get_pages()</code> 函数的过滤逻辑。</p>
+
+<h3>Q7: 想监控已经打开的业务系统页面</h3>
+<p><strong>答</strong>：如果 Chrome 已以 <code>--remote-debugging-port=9222</code> 启动，脚本会自动检测并复用。如果 Chrome 是普通模式启动的，需要用以下命令重启（或另开一个带调试端口的 Chrome）：</p>
+<pre><code class="language-batch">"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+</code></pre>
+
+<h3>Q8: 采样/snapshot 文件在 DevTools 中加载报错</h3>
+<p><strong>答</strong>：<br>
+- <strong>采样文件（<code>sampling-*.heapprofile</code>）</strong>：Chrome 新版原生支持 <code>.heapprofile</code> 格式，直接在 Memory 面板点击 "Load Profile" 选择文件即可。如果 DevTools 无法识别，可尝试将文件名改为 <code>profile-*.json</code> 后重新加载。<br>
+- <strong>堆快照文件（<code>heap-*.heapsnapshot</code>）</strong>：确保文件扩展名为 <code>.heapsnapshot</code>，使用最新版 Chrome 的 DevTools 打开。</p>
+
+<h3>Q9: 阈值是按系统总内存还是浏览器内存计算的？</h3>
+<p><strong>答</strong>：目前是基于 <strong><code>performance.memory.jsHeapSizeLimit</code></strong>（Chrome JS 堆上限）计算的，而不是系统总内存。原因：</p>
+<ul>
+<li><code>jsHeapSizeLimit</code> 是 Chrome V8 引擎允许 JavaScript 占用的最大内存（64位系统通常为 4 GB）</li>
+<li>这才是浏览器实际相关的内存限制</li>
+<li>不同机器的 <code>jsHeapSizeLimit</code> 不同，阈值自动适配</li>
+</ul>
+<p>首次采集到内存数据后，日志会打印：</p>
+<pre><code>📐 JS 堆上限: 4096 MB  |  高频阈值: 3276 MB (80%)  |  紧急阈值: 3891 MB (95%)
+</code></pre>
+
+<h3>Q10: 分配采样和堆快照有什么区别？为什么需要双采集？</h3>
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>分配采样</th>
+<th>堆快照</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CDP 命令</strong></td>
+<td><code>HeapProfiler.startSampling</code>→录制→<code>stopSampling</code></td>
+<td><code>HeapProfiler.takeHeapSnapshot</code></td>
+</tr>
+<tr>
+<td><strong>运行方式</strong></td>
+<td>持续录制，到点 stop→save→restart</td>
+<td>每次独立触发</td>
+</tr>
+<tr>
+<td><strong>文件大小</strong></td>
+<td>数 KB ~ 数 MB</td>
+<td>数十 MB ~ 数百 MB</td>
+</tr>
+<tr>
+<td><strong>采集速度</strong></td>
+<td>快（毫秒级）</td>
+<td>慢（秒级，可能阻塞浏览器）</td>
+</tr>
+<tr>
+<td><strong>影响浏览器性能</strong></td>
+<td>极小</td>
+<td>较大（触发 GC + 遍历堆）</td>
+</tr>
+<tr>
+<td><strong>捕获内容</strong></td>
+<td>分配调用栈（统计性）</td>
+<td>所有存活对象的完整快照</td>
+</tr>
+<tr>
+<td><strong>定时器</strong></td>
+<td><code>SAMPLING_INTERVAL_NORMAL</code>（默认 60s）</td>
+<td><code>SNAPSHOT_INTERVAL_NORMAL</code>（默认 60分）</td>
+</tr>
+<tr>
+<td><strong>DevTools 视图</strong></td>
+<td>Allocation / Heavy / Tree</td>
+<td>Summary / Comparison / Containment</td>
+</tr>
+</tbody>
+</table>
+<p><strong>为什么需要双采集？</strong> 分配采样是统计性的，在极高分配频率下可能遗漏部分对象，但文件小、速度快，适合持续监控。堆快照虽然慢且文件大，但完整无遗漏。两者独立运行、相辅相成，既能保持日常监控的低开销，又能拿到最完整的数据用于深度分析。</p>
+
+<h3>Q11: 为什么堆快照会超时？如何解决？</h3>
+<p><strong>原因</strong>：有两个常见原因：<br>
+1. <strong>V8 Profiler 域冲突</strong>：<code>HeapProfiler.startSampling</code> 和 <code>HeapProfiler.takeHeapSnapshot</code> 不能同时运行<br>
+2. <strong>默认超时太短</strong>：堆快照生成可能需要几十秒，默认 15 秒超时不够</p>
+<p><strong>解决方案</strong>：<br>
+1. 在拍摄堆快照前，先停止分配采样（<code>stopSampling</code>），拍摄完成后再恢复（<code>startSampling</code>）<br>
+2. 将 <code>takeHeapSnapshot</code> 的超时时间延长到 60 秒</p>
+<pre><code class="language-python"># 已在代码中实现：
+resp = await send_cdp("HeapProfiler.takeHeapSnapshot", {
+    "reportProgress": True
+}, timeout=60)  # ← 超时设为 60 秒
+</code></pre>
+
+<hr>
+<h2>技术架构</h2>
+<pre><code>┌─────────────┐     CDP WebSocket     ┌─────────────────────┐
+│   Chrome    │◄────────────────────►│  chrome-monitor.py  │
+│  (业务系统) │     ws://:9222        │  (Python 3 + asyncio)│
+└─────────────┘                      └─────────┬───────────┘
+                                                │
+                         ┌──────────────────────┼──────────────────────┐
+                         ▼                      ▼                      ▼
+                   ┌──────────┐          ┌──────────┐           ┌──────────┐
+                   │ 控制台   │          │ CSV 日志 │           │ 采样+快照│
+                   │ 仪表盘   │          │ (Excel)  │           │ 文件目录 │
+                   │ (Sparkline)│        └──────────┘           └──────────┘
+                   └──────────┘
+</code></pre>
+
+<h3>采集策略流程</h3>
+<pre><code>1. 脚本启动 → 关闭已有 Chrome（如有）
+2. 启动新 Chrome（--remote-debugging-port=9222）→ 先打开 about:blank
+3. CDP WebSocket 连接 → 启用域（Performance/Memory/HeapProfiler）
+4. 通用导航：通过 window.location.href 跳转到目标 URL
+5. 启动分配采样（HeapProfiler.startSampling）→ 开始持续录制
+6. 循环（三个独立定时器互不干扰）：
+   ├─ 指标采集定时器（每 METRIC_INTERVAL 秒）：
+   │    collect_metrics() → 写 CSV → 渲染仪表盘（含 Sparkline）
+   ├─ [分配采样定时器] 每 SAMPLING_INTERVAL_XXX 秒：
+   │    stopSampling（停止录制）→ 保存 .heapprofile → startSampling（继续录制）
+   └─ [堆快照定时器] 每 SNAPSHOT_INTERVAL_XXX 秒：
+         stopSampling（避免冲突）→ takeHeapSnapshot → 保存 .heapsnapshot → startSampling
+7. 内存超限时：立即触发分配采样保存 + 堆快照保存（比定时提前）
+8.  Chrome 崩溃 → WebSocket 断开 → 保存最后采样+快照 → 退出
+</code></pre>
+
+<hr>
+<h2>退出方式</h2>
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>正常退出</td>
+<td>在 CMD 窗口按 <code>Ctrl + C</code></td>
+</tr>
+<tr>
+<td>自动退出</td>
+<td>Chrome 进程崩溃或退出时自动停止</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>注意</strong>：脚本退出后 <strong>不会关闭 Chrome 浏览器</strong>，用户数据目录（<code>.chrome-debug-profile</code>）会保留以便下次复用。</p>
+</blockquote>
